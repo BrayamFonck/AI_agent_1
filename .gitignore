@@ -1,0 +1,8 @@
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Opcional: archivos locales sensibles
+*.pem
+*.key
