@@ -1,22 +1,26 @@
-from langchain_community.tools import WikipediaQueryRun
-from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.utilities import WikipediaAPIWrapper
 from langchain.tools import tool
+from pydantic import BaseModel, Field
 from datetime import datetime
 import traceback
 
+# ── ESQUEMAS DE ENTRADA (Ayudan al LLM a no fallar el Tool Calling) ────
+class SaveToolInput(BaseModel):
+    data: str = Field(description="The exact text content to be saved to the file.")
+    filename: str = Field(default="research_output.txt", description="The name of the file to save the data in.")
 
-# ── HERRAMIENTA DE GUARDADO ────────────────────────────────────────────────────
+class SearchToolInput(BaseModel):
+    query: str = Field(description="The search query to look up on the web. Keep it simple and without special characters if possible.")
 
-# El decorador @tool convierte la función directamente en una herramienta de LangChain
-# El agente usará el nombre de la función y su docstring para saber cuándo usarla
-@tool
+class WikipediaToolInput(BaseModel):
+    query: str = Field(description="The topic to search for on Wikipedia.")
+
+# ── HERRAMIENTA DE GUARDADO ────────────────────────────────────────────
+
+@tool("save_tool", args_schema=SaveToolInput)
 def save_tool(data: str, filename: str = "research_output.txt") -> str:
-    """Saves structured research data to a text file.
-    Args:
-        data: The content to save
-        filename: The name of the file to save to
-    """
+    """Saves structured research data or notes to a text file on the local system."""
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted_text = f"--- Research Output ---\nTimestamp: {timestamp}\n\n{data}\n\n"
@@ -25,55 +29,36 @@ def save_tool(data: str, filename: str = "research_output.txt") -> str:
             f.write(formatted_text)
 
         return f"Data successfully saved to {filename}"
-    except PermissionError:
-        return (
-            f"[save_tool_error] No hay permisos para escribir en '{filename}'. "
-            "Verifica permisos de carpeta/archivo."
-        )
-    except OSError as exc:
-        return f"[save_tool_error] Error de sistema al guardar archivo: {exc}"
     except Exception as exc:
-        return (
-            "[save_tool_error] Error inesperado al guardar. "
-            f"Detalle: {exc}\n{traceback.format_exc()}"
-        )
+        return f"[save_tool_error] Detailed error: {exc}"
 
 
-# ── HERRAMIENTA DE BÚSQUEDA WEB ───────────────────────────────────────────────
+# ── HERRAMIENTA DE BÚSQUEDA WEB ────────────────────────────────────────
 
-@tool
+@tool("search_tool", args_schema=SearchToolInput)
 def search_tool(query: str) -> str:
-    """Search the web for information using DuckDuckGo.
-    Args:
-        query: The search terms to look for
-    """
+    """Search the web for current information, news, or general queries."""
     if not query or not query.strip():
-        return "[search_tool_error] La consulta está vacía. Proporciona un texto para buscar."
+        return "[search_tool_error] Empty query."
 
     try:
         search = DuckDuckGoSearchRun()
         return search.run(query)
-    except ImportError as exc:
-        return (
-            "[search_tool_error] Falta la dependencia 'ddgs'. "
-            "Instala con: pip install -U ddgs. "
-            f"Detalle: {exc}"
-        )
     except Exception as exc:
-        return (
-            "[search_tool_error] Falló la búsqueda web (posible red/bloqueo/rate-limit). "
-            f"Detalle: {exc}\n{traceback.format_exc()}"
-        )
+        return f"[search_tool_error] Web search failed. Details: {exc}"
 
 
-# ── HERRAMIENTA DE WIKIPEDIA ──────────────────────────────────────────────────
+# ── HERRAMIENTA DE WIKIPEDIA ───────────────────────────────────────────
 
-# Wikipedia no necesita @tool porque WikipediaQueryRun ya es una Tool de LangChain
-try:
-    import wikipedia
-
-    api_wrapper = WikipediaAPIWrapper(wiki_client=wikipedia, top_k_results=1, doc_content_chars_max=100)
-    wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
-except Exception:
-    wiki_tool = None
-    
+@tool("wikipedia_search_tool", args_schema=WikipediaToolInput)
+def wikipedia_search_tool(query: str) -> str:
+    """Search Wikipedia for information about historical facts, concepts, or entities."""
+    if not query or not query.strip():
+        return "[wikipedia_error] Empty query."
+        
+    try:
+        import wikipedia
+        api_wrapper = WikipediaAPIWrapper(wiki_client=wikipedia, top_k_results=1, doc_content_chars_max=1000)
+        return api_wrapper.run(query)
+    except Exception as exc:
+        return f"[wikipedia_error] Wikipedia search failed: {exc}"
